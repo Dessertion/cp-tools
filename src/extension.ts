@@ -1,53 +1,74 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
-import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as optionsRegister from './options/register';
+import * as path from 'path';
+import * as vscode from 'vscode';
 import * as executeRegister from './execute/register';
 import * as templatesRegister from './template/register';
+import * as optionsRegister from './options/register';
 import { OptionManager } from './options/options';
-import { errorIfUndefined } from './undefinedutils';
+import { TestManager } from './execute/tests';
+import { OutputDI } from './display/outputDisplayInterface';
+import { ProgramExecutionManager } from './execute/execute';
+import { InputDI } from './display/inputDisplayInterface';
+import { OptionsDI } from './display/optionsDisplayInterface';
+import { rootPath } from './extUtils';
 
 // ---------------------------------------------------------------------------
 // Globals to export
 // ---------------------------------------------------------------------------
 
-var _extensionContext: vscode.ExtensionContext | undefined = undefined;
-var _optionManager: OptionManager | undefined = undefined;
+export let extensionContext: vscode.ExtensionContext | undefined = undefined;
+export let optionManager: OptionManager | undefined = undefined;
+export let testManager: TestManager | undefined = undefined;
 
-export function extensionContext(): vscode.ExtensionContext { return errorIfUndefined(_extensionContext, 'Extension not activated!'); }
-export function optionManager(): OptionManager { return errorIfUndefined(_optionManager, 'Extension not activated!'); }
+export let outputDI: OutputDI | undefined = undefined;
+export let inputDI: InputDI | undefined = undefined;
+export let optionsDI: OptionsDI | undefined = undefined;
+
+export let programExecutionManager: ProgramExecutionManager | undefined = undefined;
 
 // ---------------------------------------------------------------------------
 // Activation Registration n stuff
 // ---------------------------------------------------------------------------
 
+// tslint:disable: curly
 export function activate(context: vscode.ExtensionContext) {
-	console.log('Congratulations, your extension "cp-tools" is now active!');
+	// Setting and Initializing Singletons
+	extensionContext = context;
+	optionManager = new OptionManager(extensionContext);
+	testManager = new TestManager(); testManager.readFromConfig();
 
-	// Setting context
-	_extensionContext = context;
-	_optionManager = new OptionManager(_extensionContext);
+	outputDI = new OutputDI(context);
+	inputDI = new InputDI(context);
+	optionsDI = new OptionsDI(context);
+
+	programExecutionManager = new ProgramExecutionManager();
 
 	// Misc. Commands
-	let openInputFileCommand = vscode.commands.registerCommand('cp-tools.openInputFile', () => {
-		const path = optionManager().get('buildAndRun', 'inputFile');
-		
-		if (!fs.existsSync(path)) {
-			vscode.window.showErrorMessage(`Could not find input file ${path}!`);
-			return;
+	let openInput = vscode.commands.registerCommand('cp-tools.openInput', () => inputDI?.openDisplay(context));
+	let openOutput = vscode.commands.registerCommand('cp-tools.openOutput', () => outputDI?.openDisplay(context));
+	let openOptions = vscode.commands.registerCommand('cp-tools.openOptions', () => optionsDI?.openDisplay(context));
+	let removeTemp = vscode.commands.registerCommand('cp-tools.removeTempFiles', () => {
+		for (const file of fs.readdirSync(rootPath())) {
+			if (file.startsWith('tmp'))
+				fs.unlinkSync(path.join(rootPath(), file));
 		}
-
-		vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path));
+		vscode.window.showInformationMessage('Removed temporary files!');
 	});
 
-	context.subscriptions.push(openInputFileCommand);
+	context.subscriptions.push(openInput);
+	context.subscriptions.push(openOutput);
+	context.subscriptions.push(openOptions);
+	context.subscriptions.push(removeTemp);
 
 	// Registering Other Commands
 	optionsRegister.registerViewsAndCommands(context);
 	executeRegister.registerViewsAndCommands(context);
 	templatesRegister.registerViewsAndCommands(context);
+
+	console.log('Initialized extension "cp-tools"');
 }
 
-// this method is called when your extension is deactivated
-export function deactivate() {}
+// cleanup
+export function deactivate() {
+	testManager!.writeToConfig();
+}
